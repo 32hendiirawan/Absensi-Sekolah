@@ -1,0 +1,8 @@
+{
+  "name": "Sistem Kehadiran Siswa Cerdas",
+  "description": "Aplikasi manajemen kehadiran siswa berbasis lokasi (GPS) dengan pelaporan otomatis ke orang tua melalui WhatsApp dan rekapitulasi data untuk admin.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
