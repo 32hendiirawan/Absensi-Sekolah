@@ -61,13 +61,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </button>
           </div>
           
-          <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col gap-2">
-            <p className="text-xs text-center text-slate-400">Demo User Access:</p>
-            <div className="flex justify-center gap-4 text-xs font-mono text-slate-500">
-              <span className="bg-slate-100 px-2 py-1 rounded">Admin: admin / 123</span>
-              <span className="bg-slate-100 px-2 py-1 rounded">Siswa: siswa / 123</span>
-            </div>
-          </div>
         </form>
       </div>
     </div>
