@@ -32,7 +32,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   pendingNotifications,
   setPendingNotifications
 }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'reports' | 'settings' | 'whatsapp'>('reports');
+  const [activeTab, setActiveTab] = useState<'users' | 'reports' | 'settings' | 'whatsapp'>('whatsapp');
   const [reportType, setReportType] = useState<ReportType>('harian');
   const [isLocating, setIsLocating] = useState(false);
   
@@ -40,6 +40,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'none', direction: 'asc' });
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [newUser, setNewUser] = useState<Partial<User>>({ role: Role.STUDENT });
+
+  // Manual Message Form State
+  const [manualTargetId, setManualTargetId] = useState('');
+  const [manualMessage, setManualMessage] = useState('');
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
@@ -51,7 +55,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const monthsID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
-  // Fix: Added toggleSort function to handle user table sorting
+  const students = useMemo(() => users.filter(u => u.role === Role.STUDENT), [users]);
+  
   const toggleSort = (key: keyof User) => {
     setSortConfig(prev => ({
       key,
@@ -59,13 +64,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }));
   };
 
-  // Fix: Added SortIndicator component to display sorting direction in table headers
   const SortIndicator = ({ column }: { column: keyof User }) => {
     if (sortConfig.key !== column) return null;
     return <span className="ml-1 text-indigo-600 font-bold">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  const students = useMemo(() => users.filter(u => u.role === Role.STUDENT), [users]);
   const classList = useMemo(() => {
     const classes = Array.from(new Set(students.map(s => s.class).filter(Boolean)));
     return ['Semua', ...classes];
@@ -136,7 +139,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       const pos = await getCurrentPosition();
       setSettings({ ...settings, targetLat: pos.coords.latitude, targetLng: pos.coords.longitude });
-      alert('Koordinat berhasil diperbarui.');
     } catch (err: any) {
       alert(`Gagal: ${err.message}`);
     } finally {
@@ -150,11 +152,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const entryTimeToday = new Date();
     entryTimeToday.setHours(entryHour, entryMinute, 0, 0);
 
-    if (now < entryTimeToday) {
-      alert(`Belum waktunya mengecek keterlambatan. Jam masuk: ${settings.entryTime}`);
-      return;
-    }
-
     const todayStr = now.toISOString().split('T')[0];
     const newLateNotifs: AppNotification[] = [];
 
@@ -165,7 +162,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       );
 
       if (!hasPresenceToday && student.parentContact) {
-        // Only add if not already in queue
         const exists = pendingNotifications.some(n => 
           n.studentId === student.id && n.type === 'Keterlambatan' && 
           new Date(n.createdAt).toISOString().split('T')[0] === todayStr
@@ -187,16 +183,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     if (newLateNotifs.length > 0) {
       setPendingNotifications(prev => [...newLateNotifs, ...prev]);
-      alert(`${newLateNotifs.length} siswa terlambat terdeteksi dan masuk antrean WhatsApp.`);
+      alert(`${newLateNotifs.length} siswa baru terdeteksi belum absen.`);
     } else {
-      alert('Tidak ada siswa baru yang terlambat hari ini.');
+      alert('Tidak ada siswa baru yang terdeteksi terlambat saat ini.');
     }
+  };
+
+  const handleAddManualNotification = () => {
+    const target = students.find(s => s.id === manualTargetId);
+    if (!target || !manualMessage) return alert('Pilih siswa dan isi pesan!');
+    if (!target.parentContact) return alert('Siswa ini tidak memiliki nomor kontak orang tua.');
+
+    const newNotif: AppNotification = {
+      id: Math.random().toString(36).substr(2, 9),
+      studentId: target.id,
+      studentName: target.name,
+      type: 'Kehadiran',
+      contact: target.parentContact,
+      message: manualMessage,
+      createdAt: new Date().toISOString()
+    };
+
+    setPendingNotifications(prev => [newNotif, ...prev]);
+    setManualMessage('');
+    setManualTargetId('');
+    alert('Pesan manual berhasil ditambahkan ke antrean.');
   };
 
   const sendNotification = (notif: AppNotification) => {
     const url = getWhatsAppUrl(notif.contact, notif.message);
     window.open(url, '_blank');
-    // Automatically remove after sending
     setPendingNotifications(prev => prev.filter(n => n.id !== notif.id));
   };
 
@@ -249,11 +265,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   return (
     <div className="space-y-8">
+      {/* Tab Menu */}
       <div className="flex flex-wrap gap-2 p-1 bg-slate-100 rounded-2xl w-fit">
         {[
+          { id: 'whatsapp', label: 'WhatsApp', icon: ICONS.WhatsApp },
           { id: 'reports', label: 'Rekapitulasi', icon: ICONS.Reports },
           { id: 'users', label: 'Siswa & Akun', icon: ICONS.Users },
-          { id: 'whatsapp', label: 'WhatsApp', icon: ICONS.WhatsApp },
           { id: 'settings', label: 'Pengaturan', icon: ICONS.Settings }
         ].map(t => (
           <button
@@ -265,7 +282,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             {t.icon} {t.label}
             {t.id === 'whatsapp' && pendingNotifications.length > 0 && (
-              <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+              <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black">
                 {pendingNotifications.length}
               </span>
             )}
@@ -275,61 +292,121 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {activeTab === 'whatsapp' && (
         <div className="space-y-6 animate-in slide-in-from-right duration-500">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
-            <div>
-              <h3 className="text-xl font-bold text-slate-900">Antrean Pesan WhatsApp</h3>
-              <p className="text-sm text-slate-500">Kirim laporan manual ke orang tua siswa.</p>
-            </div>
-            <button 
-              onClick={handleCheckLateStudents}
-              className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg flex items-center gap-2"
-            >
-              {ICONS.Clock} Cek Siswa Alpa/Terlambat
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {pendingNotifications.length === 0 ? (
-              <div className="col-span-full py-20 text-center bg-white rounded-2xl border border-dashed border-slate-300">
-                <div className="text-slate-300 flex justify-center mb-4 scale-150">{ICONS.WhatsApp}</div>
-                <p className="text-slate-500 font-medium">Tidak ada antrean pesan saat ini.</p>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Left: Queue Control & Manual Form */}
+            <div className="lg:col-span-1 space-y-6">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <div className="text-indigo-600">{ICONS.WhatsApp}</div>
+                  Panel Kontrol
+                </h3>
+                <p className="text-xs text-slate-500">Gunakan tombol di bawah untuk mendeteksi siswa yang belum melakukan presensi hari ini.</p>
+                <button 
+                  onClick={handleCheckLateStudents}
+                  className="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center gap-2"
+                >
+                  {ICONS.Clock} Cek Siswa Belum Absen
+                </button>
               </div>
-            ) : (
-              pendingNotifications.map(notif => (
-                <div key={notif.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-indigo-200 transition-all flex flex-col justify-between">
-                  <div>
-                    <div className="flex justify-between items-start mb-4">
-                      <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
-                        notif.type === 'Kehadiran' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                      }`}>
-                        {notif.type}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {new Date(notif.createdAt).toLocaleTimeString()}
-                      </span>
-                    </div>
-                    <h4 className="font-bold text-slate-900 mb-1">{notif.studentName}</h4>
-                    <p className="text-xs text-slate-600 line-clamp-4 whitespace-pre-wrap italic bg-slate-50 p-3 rounded-lg border border-slate-100">
-                      {notif.message}
-                    </p>
-                  </div>
-                  <div className="mt-5 flex gap-2">
-                    <button 
-                      onClick={() => setPendingNotifications(prev => prev.filter(n => n.id !== notif.id))}
-                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                    >
-                      {ICONS.Delete}
-                    </button>
-                    <button 
-                      onClick={() => sendNotification(notif)}
-                      className="flex-1 py-2 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-all flex items-center justify-center gap-2 shadow-md shadow-green-100"
-                    >
-                      {ICONS.WhatsApp} Kirim Pesan
-                    </button>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  {ICONS.Edit} Tulis Pesan Manual
+                </h3>
+                <div className="space-y-3">
+                  <select 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={manualTargetId}
+                    onChange={(e) => setManualTargetId(e.target.value)}
+                  >
+                    <option value="">Pilih Siswa...</option>
+                    {students.map(s => <option key={s.id} value={s.id}>{s.name} ({s.class})</option>)}
+                  </select>
+                  <textarea 
+                    placeholder="Tulis isi pesan di sini..."
+                    className="w-full h-32 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                    value={manualMessage}
+                    onChange={(e) => setManualMessage(e.target.value)}
+                  />
+                  <button 
+                    onClick={handleAddManualNotification}
+                    className="w-full py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-all flex items-center justify-center gap-2"
+                  >
+                    {ICONS.Plus} Tambah ke Antrean
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: The Outbox List */}
+            <div className="lg:col-span-2">
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden min-h-[400px] flex flex-col">
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                  <h3 className="text-lg font-bold text-slate-900">Antrean Pesan Keluar</h3>
+                  <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    {pendingNotifications.length} Pesan Tertunda
                   </div>
                 </div>
-              ))
-            )}
+
+                <div className="flex-1 p-6">
+                  {pendingNotifications.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center py-20">
+                      <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center text-slate-200 mb-4 scale-150">
+                        {ICONS.WhatsApp}
+                      </div>
+                      <h4 className="text-lg font-bold text-slate-400">Antrean Kosong</h4>
+                      <p className="text-sm text-slate-400 max-w-xs mx-auto">Tidak ada laporan yang perlu dikirim saat ini. Laporan akan muncul di sini otomatis saat siswa melakukan presensi.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {pendingNotifications.map(notif => (
+                        <div key={notif.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-indigo-200 transition-all flex flex-col group">
+                          <div className="flex justify-between items-start mb-4">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                              notif.type === 'Kehadiran' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            }`}>
+                              {notif.type}
+                            </span>
+                            <button 
+                              onClick={() => setPendingNotifications(prev => prev.filter(n => n.id !== notif.id))}
+                              className="text-slate-300 hover:text-red-500 transition-colors"
+                            >
+                              {ICONS.Delete}
+                            </button>
+                          </div>
+                          
+                          <div className="flex-1 space-y-1 mb-4">
+                            <h4 className="font-bold text-slate-900">{notif.studentName}</h4>
+                            <p className="text-xs text-slate-400 font-medium">Ortu: {notif.contact}</p>
+                            <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-600 line-clamp-3 whitespace-pre-wrap italic">
+                              "{notif.message}"
+                            </div>
+                          </div>
+
+                          <button 
+                            onClick={() => sendNotification(notif)}
+                            className="w-full py-2.5 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-all flex items-center justify-center gap-2 shadow-md shadow-green-100"
+                          >
+                            {ICONS.WhatsApp} Kirim Laporan
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {pendingNotifications.length > 0 && (
+                  <div className="p-4 bg-slate-50 border-t border-slate-100 text-center">
+                    <button 
+                      onClick={() => { if(confirm('Hapus semua antrean?')) setPendingNotifications([]); }}
+                      className="text-xs font-bold text-red-500 hover:underline"
+                    >
+                      Bersihkan Semua Antrean
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -358,12 +435,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <button onClick={exportToExcel} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-xs font-bold rounded-xl hover:bg-green-700 transition-colors shadow-lg shadow-green-100">{ICONS.Reports} Ekspor Excel</button>
               </div>
             </div>
-            {(reportType === 'bulanan' || reportType === 'semester') && (
-              <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 p-2 rounded-lg">
-                <div className="text-indigo-600">{ICONS.Calendar}</div>
-                <span>Total Hari Efektif: <b>{reportType === 'bulanan' ? getWorkingDaysCount(selectedYear, selectedMonth) : getWorkingDaysCount(selectedYear, selectedSemester)} hari</b></span>
-              </div>
-            )}
           </div>
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50"><h3 className="text-lg font-bold text-slate-900">Rekap {reportType} - {selectedClass}</h3></div>
@@ -427,7 +498,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center"><h3 className="text-lg font-bold text-slate-900">Daftar Akun Siswa</h3><input type="text" placeholder="Cari nama..." className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-lg font-bold text-slate-900">Daftar Akun Siswa</h3>
+              <input type="text" placeholder="Cari nama..." className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
